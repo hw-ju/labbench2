@@ -1,4 +1,5 @@
 import ast
+import os
 import re
 from pathlib import Path
 
@@ -27,6 +28,35 @@ def extract_answer(output: str, answer_regex: str | None) -> dict | None:
     return match.groupdict() if match else None
 
 
+def _make_judge_agent(model: str, temperature: float, timeout: int) -> Agent:
+    """Build judge Agent; use OPENAI_API_BASE when judge is openai: and env is set."""
+    if model.startswith("openai:") and os.environ.get("OPENAI_API_BASE"):
+        from openai import AsyncOpenAI
+
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        model_name = model.split(":", 1)[1]
+        client = AsyncOpenAI(
+            base_url=os.environ["OPENAI_API_BASE"].rstrip("/"),
+            api_key=os.environ.get("OPENAI_API_KEY", "dummy"),
+        )
+        pydantic_model = OpenAIChatModel(
+            model_name,
+            provider=OpenAIProvider(openai_client=client),
+        )
+        return Agent(
+            model=pydantic_model,
+            output_type=EvaluationResult,
+            model_settings=ModelSettings(temperature=temperature, timeout=timeout),
+        )
+    return Agent(
+        model=model,
+        output_type=EvaluationResult,
+        model_settings=ModelSettings(temperature=temperature, timeout=timeout),
+    )
+
+
 class LLMJudgeEvaluator(Evaluator):
     """Semantic evaluation using LLM. Returns 1.0 (correct), 0.0 (incorrect), 0.0 (unsure)."""
 
@@ -41,11 +71,7 @@ class LLMJudgeEvaluator(Evaluator):
         self.temperature = temperature
         self.timeout = timeout
         self.prompt_template = prompt_template
-        self.agent = Agent(
-            model=self.model,
-            output_type=EvaluationResult,
-            model_settings=ModelSettings(temperature=self.temperature, timeout=self.timeout),
-        )
+        self.agent = _make_judge_agent(self.model, self.temperature, self.timeout)
 
     async def evaluate(self, ctx: EvaluatorContext[dict | str, str]) -> EvaluationReason:
         question = extract_question_from_inputs(ctx.inputs)
