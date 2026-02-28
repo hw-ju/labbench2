@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import os
 import runpy
 from pathlib import Path
 
@@ -97,6 +98,9 @@ def create_pydantic_task(model: str, usage_tracker: UsageStats | None = None):
     return task
 
 
+DEFAULT_JUDGE_MODEL = "anthropic:claude-sonnet-4-5"
+
+
 def run_evaluation(
     agent: str = "openai:gpt-4o-mini",
     tag: str | None = None,
@@ -105,6 +109,7 @@ def run_evaluation(
     parallel: int = 1,
     mode: Mode = "file",
     report_path: Path | None = None,
+    judge_model: str | None = None,
 ) -> None:
     """Run evaluation on the LabBench2 dataset. See --help for argument details."""
     is_native = agent.startswith(NATIVE_PREFIX)
@@ -114,7 +119,8 @@ def run_evaluation(
     dataset = create_dataset(
         name=eval_name, tag=tag, ids=ids, limit=limit, mode=mode, native=(is_native or is_external)
     )
-    dataset.add_evaluator(HybridEvaluator())
+    llm_model = judge_model or os.environ.get("LABBENCH2_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
+    dataset.add_evaluator(HybridEvaluator(llm_model=llm_model))
     usage_stats = UsageStats()
 
     if is_native:
@@ -227,6 +233,11 @@ def main():
     parser.add_argument("--parallel", type=int, default=30, help="Workers (default: 30)")
     parser.add_argument("--mode", default="file", choices=["file", "inject", "retrieve"])
     parser.add_argument("--report-path", type=Path, help="Output path for report JSON file")
+    parser.add_argument(
+        "--judge-model",
+        default=os.environ.get("LABBENCH2_JUDGE_MODEL", ""),
+        help="LLM for grading (litqa3 etc.). Default: LABBENCH2_JUDGE_MODEL env or anthropic:claude-sonnet-4-5. Use e.g. openai/nvidia/nemotron-nano-12b-v2-vl with OPENAI_API_BASE and OPENAI_API_KEY set for a local VLM.",
+    )
     parser.add_argument("--retry-from", type=Path, help="Retry failed IDs from this report")
     args = parser.parse_args()
 
@@ -261,6 +272,7 @@ def main():
         parallel=args.parallel,
         mode=args.mode,
         report_path=report_path,
+        judge_model=args.judge_model or None,
     )
 
 
