@@ -165,6 +165,13 @@ def download_question_files(bucket_name: str, gcs_prefix: str) -> Path:
 
 
 SOURCES_CACHE_SUBDIR = "sources"
+# Browser-like User-Agent to reduce blocking by journal sites
+_DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 PDF_LINK_PATTERN = re.compile(
     r'href\s*=\s*["\']([^"\']*\.pdf[^"\']*)["\']',
     re.IGNORECASE,
@@ -174,12 +181,14 @@ PDF_PATH_PATTERN = re.compile(r'["\']([^"\']*(?:/pdf/|\.pdf)[^"\']*)["\']', re.I
 
 def _resolve_pdf_url_from_source(source_url: str) -> str | None:
     """Resolve a DOI or landing-page URL to a direct PDF URL. Returns None if not found."""
-    with httpx.Client(follow_redirects=True, timeout=60) as client:
+    with httpx.Client(
+        follow_redirects=True, timeout=60, headers=_DEFAULT_HEADERS
+    ) as client:
         # Try content negotiation: some servers return PDF with Accept: application/pdf
         try:
             r = client.get(
                 source_url,
-                headers={"Accept": "application/pdf"},
+                headers={**_DEFAULT_HEADERS, "Accept": "application/pdf"},
             )
             r.raise_for_status()
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -191,22 +200,32 @@ def _resolve_pdf_url_from_source(source_url: str) -> str | None:
         except Exception:
             pass
 
-        # Heuristic: many journal sites use /doi/pdf/... for the same DOI path.
-        # Resolve redirects first (doi.org -> journals.asm.org etc.)
+        # Heuristic: many journal sites use /doi/pdf/ or /doi/pdfplus/ for the same DOI path.
+        # Resolve redirects first (doi.org -> journals.asm.org etc.). Use GET not HEAD (some sites reject HEAD).
         try:
             r = client.get(source_url)
             r.raise_for_status()
             landing_url = str(r.url)
             parsed = urlparse(landing_url)
             path = parsed.path.rstrip("/")
-            if "/doi/" in path and "/pdf/" not in path:
-                pdf_path = path.replace("/doi/", "/doi/pdf/", 1)
-                pdf_url = f"{parsed.scheme}://{parsed.netloc}{pdf_path}"
-                head = client.head(pdf_url, follow_redirects=True)
-                if head.status_code == 200:
-                    ct = head.headers.get("content-type", "").split(";")[0].strip().lower()
-                    if "application/pdf" in ct:
-                        return pdf_url
+            if "/doi/" in path and "/pdf" not in path:
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
+                for pdf_infix in ("/doi/pdf/", "/doi/pdfplus/"):
+                    pdf_path = path.replace("/doi/", pdf_infix.rstrip("/") + "/", 1)
+                    pdf_url = base_url + pdf_path
+                    try:
+                        with client.stream(
+                            "GET",
+                            pdf_url,
+                            headers={**_DEFAULT_HEADERS, "Accept": "application/pdf"},
+                            follow_redirects=True,
+                        ) as resp:
+                            if resp.status_code == 200:
+                                ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                                if "application/pdf" in ct:
+                                    return pdf_url
+                    except Exception:
+                        continue
         except Exception:
             pass
 
@@ -228,13 +247,13 @@ def _resolve_pdf_url_from_source(source_url: str) -> str | None:
                 url = urljoin(base, raw)
                 if urlparse(url).scheme not in ("http", "https"):
                     continue
-                # Quick check: HEAD request to see if it's a PDF
+                # Quick check: stream GET to get content-type without downloading body (some sites reject HEAD)
                 try:
-                    head = client.head(url, follow_redirects=True)
-                    if head.status_code == 200:
-                        ct = head.headers.get("content-type", "").split(";")[0].strip().lower()
-                        if "application/pdf" in ct:
-                            return url
+                    with client.stream("GET", url, follow_redirects=True) as resp:
+                        if resp.status_code == 200:
+                            ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                            if "application/pdf" in ct:
+                                return url
                 except Exception:
                     continue
     return None
