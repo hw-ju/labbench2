@@ -236,7 +236,7 @@ def main():
     parser.add_argument(
         "--judge-model",
         default=os.environ.get("LABBENCH2_JUDGE_MODEL", ""),
-        help="LLM for grading (litqa3 etc.). Default: LABBENCH2_JUDGE_MODEL env or anthropic:claude-sonnet-4-5. Use e.g. openai/nvidia/nemotron-nano-12b-v2-vl with OPENAI_API_BASE and OPENAI_API_KEY set for a local VLM.",
+        help="LLM for grading (litqa3 etc.). Default: LABBENCH2_JUDGE_MODEL env or anthropic:claude-sonnet-4-5. Use provider:model (e.g. openai:nvidia/nemotron-nano-12b-v2-vl) with OPENAI_API_BASE and OPENAI_API_KEY set for a local VLM.",
     )
     parser.add_argument("--retry-from", type=Path, help="Retry failed IDs from this report")
     args = parser.parse_args()
