@@ -184,10 +184,29 @@ def _resolve_pdf_url_from_source(source_url: str) -> str | None:
             r.raise_for_status()
             ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
             if "application/pdf" in ct:
-                return r.url
-            # If we got a redirect to a URL that looks like a PDF, use it
-            if r.url and (".pdf" in r.url.lower() or "/pdf/" in r.url):
                 return str(r.url)
+            # If we got a redirect to a URL that looks like a PDF, use it
+            if r.url and (".pdf" in str(r.url).lower() or "/pdf/" in str(r.url)):
+                return str(r.url)
+        except Exception:
+            pass
+
+        # Heuristic: many journal sites use /doi/pdf/... for the same DOI path.
+        # Resolve redirects first (doi.org -> journals.asm.org etc.)
+        try:
+            r = client.get(source_url)
+            r.raise_for_status()
+            landing_url = str(r.url)
+            parsed = urlparse(landing_url)
+            path = parsed.path.rstrip("/")
+            if "/doi/" in path and "/pdf/" not in path:
+                pdf_path = path.replace("/doi/", "/doi/pdf/", 1)
+                pdf_url = f"{parsed.scheme}://{parsed.netloc}{pdf_path}"
+                head = client.head(pdf_url, follow_redirects=True)
+                if head.status_code == 200:
+                    ct = head.headers.get("content-type", "").split(";")[0].strip().lower()
+                    if "application/pdf" in ct:
+                        return pdf_url
         except Exception:
             pass
 

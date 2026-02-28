@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 from pathlib import Path
 
 from datasets import load_dataset  # type: ignore[import-untyped] # no type stubs
@@ -8,12 +9,14 @@ from pydantic_evals import Case, Dataset
 from .models import LabBenchQuestion, Mode
 from .utils import (
     GCS_BUCKET,
+    download_pdfs_from_sources,
     download_question_files,
     is_text_injectable_format,
     load_file_as_binary_content,
 )
 
 LABBENCH2_HF_DATASET = "futurehouse/labbench2"
+logger = logging.getLogger(__name__)
 
 
 def create_case(
@@ -56,6 +59,8 @@ def create_case(
     # Download question files if specified in the dataset
     files_path: Path | None = None
     has_files = False
+    gcs_prefix_for_inputs = ""
+
     if question.files:
         files_path = download_question_files(
             bucket_name=GCS_BUCKET,
@@ -65,6 +70,36 @@ def create_case(
         if not has_files:
             raise RuntimeError(
                 f"Question {question.id} expects files at '{question.files}' but none found in GCS"
+            )
+        gcs_prefix_for_inputs = question.files.strip("/")
+    elif mode == "file" and question.sources:
+        # Fallback: no files column (e.g. litqa3); try to fetch PDFs from sources (DOIs)
+        try:
+            files_path = download_pdfs_from_sources(
+                question.sources,
+                cache_key=f"{question.tag}/{question.id}",
+            )
+            has_files = files_path.exists() and any(files_path.iterdir())
+            if has_files:
+                gcs_prefix_for_inputs = "sources"
+                logger.info(
+                    "Fetched PDF(s) from sources for %s (%s)",
+                    question.id,
+                    files_path,
+                )
+            else:
+                logger.warning(
+                    "download_pdfs_from_sources returned empty dir for %s (sources=%s)",
+                    question.id,
+                    question.sources,
+                )
+        except Exception as e:
+            logger.warning(
+                "Could not fetch PDFs from sources for %s (sources=%s): %s",
+                question.id,
+                question.sources,
+                e,
+                exc_info=True,
             )
 
     # If question expects files, add them to the inputs.
@@ -109,7 +144,7 @@ def create_case(
         inputs = {"question": question_text}
         if has_files and mode == "file":
             inputs["files_path"] = str(files_path)
-            inputs["gcs_prefix"] = question.files.strip("/")
+            inputs["gcs_prefix"] = gcs_prefix_for_inputs
     elif binary_files:
         inputs = [question_text, *binary_files]
     else:
