@@ -141,7 +141,7 @@ class TrajectoryRecorder:
         messages_repr = []
         if hasattr(agent_state, "messages"):
             for m in agent_state.messages:
-                messages_repr.append(str(m)[:500] + ("..." if len(str(m)) > 500 else ""))
+                messages_repr.append(str(m)[:8000] + ("..." if len(str(m)) > 8000 else ""))
         else:
             messages_repr.append(repr(agent_state)[:1000])
         self.steps.append({
@@ -155,7 +155,7 @@ class TrajectoryRecorder:
     async def on_env_step(self, obs: list, reward: float, done: bool, truncated: bool) -> None:
         if not self.steps:
             return
-        obs_repr = [str(m)[:500] for m in (obs or [])]
+        obs_repr = [str(m)[:8000] + ("..." if len(str(m)) > 8000 else "") for m in (obs or [])]
         self.steps[-1]["observation"] = obs_repr
         self.steps[-1]["reward"] = reward
         self.steps[-1]["contexts"] = self.last_contexts
