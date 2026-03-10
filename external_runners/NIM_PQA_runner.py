@@ -167,28 +167,47 @@ class TrajectoryRecorder:
     def print_trajectory(self) -> None:
         if not self.steps:
             return
-        logger.info("=== Trajectory (same detail as litqa2_LDP_nv_debug_rawchunks) ===")
-        logger.info("Number of steps: %s", len(self.steps))
+        print("=== Trajectory (same detail as litqa2_LDP_nv_debug_rawchunks) ===")
+        print(f"Number of steps: {len(self.steps)}")
         for i, step in enumerate(self.steps):
-            logger.info("----------------- Step %s ----------------", i)
-            logger.info("** agent_state.messages (%s):", len(step.get("agent_state_messages") or []))
-            for j, m in enumerate(step.get("agent_state_messages") or []):
-                logger.info("  [%s] %s", j, m)
-            logger.info("** action (tool choice): %s", step.get("action"))
+            print(f"\n----------------- Step {i} ----------------")
+            # agent_state.messages (match notebook order)
+            msgs = step.get("agent_state_messages") or []
+            print(f"** agent_state.messages ({len(msgs)}):")
+            for j, m in enumerate(msgs):
+                print(f"[{j}] {m}")
+            # observation (input for this step = previous step's next_observation)
+            obs_in = self.steps[i - 1].get("observation") if i > 0 else []
+            if obs_in:
+                print(f"** observation ({len(obs_in)}):")
+                for j, m in enumerate(obs_in):
+                    print(f"[{j}] {m}")
+            # action (tool choice)
+            print(f"** action (tool choice): {step.get('action')}")
+            # next_observation (tool call results from env.step)
             obs = step.get("observation") or []
-            logger.info("** next_observation (%s):", len(obs))
-            for j, m in enumerate(obs):
-                logger.info("  [%s] %s", j, m)
-            logger.info("** reward: %s", step.get("reward"))
-            contexts = step.get("contexts")
-            if contexts:
-                for idx, ctx in enumerate(contexts):
-                    logger.info("** gather_evidence context pair [%s] (score=%s):", idx, ctx.get("score", "?"))
-                    raw = (ctx.get("raw_text") or "").replace("\n", "\n  ")
-                    cap = 2000
-                    logger.info("  [Raw chunk text]\n  %s", (raw[:cap] + ("..." if len(raw) > cap else "")))
-                    logger.info("  [Summary] %s", (ctx.get("summary") or "").replace("\n", "\n  "))
-        logger.info("=== End trajectory ===")
+            if obs:
+                print(f"** next_observation ({len(obs)}):")
+                for j, m in enumerate(obs):
+                    print(f"[{j}] {m}")
+            # reward
+            print(f"** reward: {step.get('reward')}")
+            # gather_evidence context pairs (Raw chunk text, Media, Summary score, Summary)
+            contexts = step.get("contexts") or []
+            for idx, ctx in enumerate(contexts):
+                print(f"** gather_evidence context pair [{idx}] (score={ctx.get('score', '?')}):")
+                raw = (ctx.get("raw_text") or "").replace("\n", "\n  ")
+                cap = 2000
+                print("  [Raw chunk text]")
+                print("  " + (raw[:cap] + ("..." if len(raw) > cap else "")))
+                for m_idx, m in enumerate(ctx.get("raw_media") or []):
+                    data_url = m.get("data_url") or ""
+                    if data_url:
+                        print(f"  [Media {m_idx}] (data URL, len={len(data_url)})")
+                print(f"  [Summary score] {ctx.get('score', '?')}")
+                print("  [Summary]")
+                print("  " + (ctx.get("summary") or "").replace("\n", "\n  "))
+        print("=== End trajectory ===")
 
     def save_notebook(self, question: str, path: Path) -> None:
         """Save trajectory to a Jupyter notebook (.ipynb) for viewing in Jupyter Lab with context pairs and embedded images."""
@@ -220,6 +239,8 @@ def _trajectory_to_notebook_cells(question: str, steps: list[dict]) -> list[dict
         "metadata": {},
         "source": ["# LabBench2 trajectory\n", "\n", "**Question:**\n", "\n", (question[:10000] + ("..." if len(question) > 10000 else "")) + "\n"],
     })
+    # Media display width in notebook (match notebook's smaller size; notebook uses width=280, we use 200)
+    MEDIA_WIDTH = 200
     for i, step in enumerate(steps):
         cells.append({
             "cell_type": "markdown",
@@ -230,40 +251,53 @@ def _trajectory_to_notebook_cells(question: str, steps: list[dict]) -> list[dict
             cells.append({
                 "cell_type": "markdown",
                 "metadata": {},
-                "source": [f"- `[{j}]` {_escape_md(str(m))}\n"],
+                "source": [f"[{j}] {_escape_md(str(m))}\n"],
             })
+        # observation (input for this step = previous step's next_observation)
+        obs_in = steps[i - 1].get("observation") if i > 0 else []
+        if obs_in:
+            cells.append({
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [f"### observation ({len(obs_in)})\n"] + [_escape_md(str(m)) + "\n" for m in obs_in],
+            })
+        # action (tool choice)
         cells.append({
             "cell_type": "markdown",
             "metadata": {},
             "source": ["### action (tool choice)\n", "\n", _escape_md(str(step.get("action", ""))) + "\n"],
         })
+        # next_observation (tool call results from env.step)
         obs = step.get("observation") or []
+        if obs:
+            cells.append({
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [f"### next_observation ({len(obs)})\n"] + [_escape_md(str(m)) + "\n" for m in obs],
+            })
+        # reward
         cells.append({
             "cell_type": "markdown",
             "metadata": {},
-            "source": [f"### next_observation ({len(obs)})\n"] + [_escape_md(str(m)) + "\n" for m in obs],
+            "source": ["### reward\n", "\n", str(step.get("reward", "")) + "\n"],
         })
-        cells.append({
-            "cell_type": "markdown",
-            "metadata": {},
-            "source": [f"### reward\n", "\n", str(step.get("reward", "")) + "\n"],
-        })
+        # gather_evidence context pairs: Raw chunk text, Media (smaller), Summary score, Summary
         contexts = step.get("contexts") or []
         for idx, ctx in enumerate(contexts):
             score = ctx.get("score", "?")
             cells.append({
                 "cell_type": "markdown",
                 "metadata": {},
-                "source": [f"### gather_evidence context pair [{idx}] (score={score})\n", "\n", "**Raw chunk text:**\n", "\n", (ctx.get("raw_text") or "") + "\n", "\n", "**Summary:**\n", "\n", (ctx.get("summary") or "") + "\n"],
+                "source": [f"### gather_evidence context pair [{idx}] (score={score})\n", "\n", "**Raw chunk text:**\n", "\n", (ctx.get("raw_text") or "") + "\n"],
             })
             for m_idx, media in enumerate(ctx.get("raw_media") or []):
                 data_url = media.get("data_url") or ""
                 if data_url.startswith("data:"):
-                    # Embed image in markdown so Jupyter Lab renders it
+                    # Smaller embedded image via HTML (Jupyter Lab renders it)
                     cells.append({
                         "cell_type": "markdown",
                         "metadata": {},
-                        "source": [f"**Media {m_idx}:**\n", "\n", f"![context media {m_idx}]({data_url})\n"],
+                        "source": [f"**Media {m_idx}:**\n", "\n", f'<img src="{data_url}" width="{MEDIA_WIDTH}" />\n'],
                     })
                 else:
                     cells.append({
@@ -271,6 +305,11 @@ def _trajectory_to_notebook_cells(question: str, steps: list[dict]) -> list[dict
                         "metadata": {},
                         "source": [f"**Media {m_idx}:** (non-embed URL or binary)\n", "\n", _escape_md(data_url[:2000]) + "\n"],
                     })
+            cells.append({
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [f"**Summary score:** {score}\n", "\n", "**Summary:**\n", "\n", (ctx.get("summary") or "") + "\n"],
+            })
     return cells
 
 
