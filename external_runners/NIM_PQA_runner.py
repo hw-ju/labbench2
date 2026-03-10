@@ -179,22 +179,27 @@ class TrajectoryRecorder:
             # observation (input for this step = previous step's next_observation)
             obs_in = self.steps[i - 1].get("observation") if i > 0 else []
             if obs_in:
+                print()
                 print(f"** observation ({len(obs_in)}):")
                 for j, m in enumerate(obs_in):
                     print(f"[{j}] {m}")
             # action (tool choice)
+            print()
             print(f"** action (tool choice): {step.get('action')}")
             # next_observation (tool call results from env.step)
             obs = step.get("observation") or []
             if obs:
+                print()
                 print(f"** next_observation ({len(obs)}):")
                 for j, m in enumerate(obs):
                     print(f"[{j}] {m}")
             # reward
+            print()
             print(f"** reward: {step.get('reward')}")
             # gather_evidence context pairs (Raw chunk text, Media, Summary score, Summary)
             contexts = step.get("contexts") or []
             for idx, ctx in enumerate(contexts):
+                print()
                 print(f"** gather_evidence context pair [{idx}] (score={ctx.get('score', '?')}):")
                 raw = (ctx.get("raw_text") or "").replace("\n", "\n  ")
                 cap = 2000
@@ -242,12 +247,13 @@ def _trajectory_to_notebook_cells(question: str, steps: list[dict]) -> list[dict
     # Media display width in notebook (match notebook's smaller size; notebook uses width=280, we use 200)
     MEDIA_WIDTH = 200
     for i, step in enumerate(steps):
+        msgs = step.get("agent_state_messages") or []
         cells.append({
             "cell_type": "markdown",
             "metadata": {},
-            "source": [f"## Step {i}\n", "\n", "### agent_state.messages\n"],
+            "source": [f"## Step {i}\n", "\n", f"### agent_state.messages ({len(msgs)})\n"],
         })
-        for j, m in enumerate(step.get("agent_state_messages") or []):
+        for j, m in enumerate(msgs):
             cells.append({
                 "cell_type": "markdown",
                 "metadata": {},
@@ -285,10 +291,11 @@ def _trajectory_to_notebook_cells(question: str, steps: list[dict]) -> list[dict
         contexts = step.get("contexts") or []
         for idx, ctx in enumerate(contexts):
             score = ctx.get("score", "?")
+            raw_text = ctx.get("raw_text") or ""
             cells.append({
                 "cell_type": "markdown",
                 "metadata": {},
-                "source": [f"### gather_evidence context pair [{idx}] (score={score})\n", "\n", "**Raw chunk text:**\n", "\n", (ctx.get("raw_text") or "") + "\n"],
+                "source": [f"### gather_evidence context pair [{idx}] (score={score})\n", "\n", "**Raw chunk text:**\n", "\n", "```\n", raw_text + "\n", "```\n"],
             })
             for m_idx, media in enumerate(ctx.get("raw_media") or []):
                 data_url = media.get("data_url") or ""
