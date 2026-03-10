@@ -59,9 +59,9 @@ from paperqa_nemotron import parse_pdf_to_pages
 logger = logging.getLogger(__name__)
 
 # Azure endpoint defaults (see test_azure_endpoints_pqa_results (1).ipynb, test_parse_pqa_results.ipynb)
+# Use provider-prefixed model name so LDP/litellm get a known provider (avoids "LLM Provider NOT provided").
 DEFAULT_AZURE_CHAT_API_BASE = "https://prod.api.nvidia.com/llm/v1/azure"
 DEFAULT_AZURE_EMBEDDING_API_BASE = "https://prod.api.nvidia.com/llm/v1/azure"
-CUSTOM_LLM_NAME = "nvidia-azure-gpt4o"
 DEFAULT_AZURE_LLM_MODEL = "openai/gpt-4o"
 DEFAULT_AZURE_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 # Nemotron Parse NIM (self-hosted, same as test_parse_pqa_results.ipynb)
@@ -337,11 +337,11 @@ def _build_base_settings(
     """Build PaperQA Settings: Azure for LLM/embedding, Nemotron Parse NIM for PDF (test_parse_pqa_results.ipynb)."""
     llm_model = os.environ.get("AZURE_LLM_MODEL", DEFAULT_AZURE_LLM_MODEL)
     embedding_model = os.environ.get("AZURE_EMBEDDING_MODEL", DEFAULT_AZURE_EMBEDDING_MODEL)
-
+    # Use provider-prefixed model (e.g. openai/gpt-4o) as the router/agent name so LDP and LiteLLM get a known provider.
     nvidia_llm_config = {
         "model_list": [
             {
-                "model_name": CUSTOM_LLM_NAME,
+                "model_name": llm_model,
                 "litellm_params": {
                     "model": llm_model,
                     "api_base": chat_api_base,
@@ -378,7 +378,7 @@ def _build_base_settings(
                 "max_tokens": 8995,
             },
         },
-        enrichment_llm=CUSTOM_LLM_NAME,
+        enrichment_llm=llm_model,
         enrichment_llm_config=nvidia_llm_config,
         multimodal=True,
     )
@@ -389,9 +389,9 @@ def _build_base_settings(
     )
 
     return Settings(
-        llm=CUSTOM_LLM_NAME,
+        llm=llm_model,
         llm_config=nvidia_llm_config,
-        summary_llm=CUSTOM_LLM_NAME,
+        summary_llm=llm_model,
         summary_llm_config=nvidia_llm_config,
         embedding=embedding_model,
         embedding_config=nvidia_embedding_config,
@@ -404,7 +404,7 @@ def _build_base_settings(
         parsing=parsing_settings,
         agent=AgentSettings(
             agent_type="ldp.agent.SimpleAgent",
-            agent_llm=CUSTOM_LLM_NAME,
+            agent_llm=llm_model,
             agent_llm_config=nvidia_llm_config,
             index=index_settings,
         ),
