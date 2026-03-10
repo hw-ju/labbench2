@@ -411,7 +411,7 @@ def _build_base_settings(
                             "model": LITELLM_VLM_MODEL,
                             "api_base": vlm_api_base,
                             "api_key": SELFHOST_API_KEY,
-                            "temperature": 0,
+                            "temperature": 0.5,
                             "max_tokens": 2048,
                         },
                     }
