@@ -1,6 +1,5 @@
 import ast
 import json
-import logging
 from pathlib import Path
 
 from datasets import load_dataset  # type: ignore[import-untyped] # no type stubs
@@ -9,18 +8,19 @@ from pydantic_evals import Case, Dataset
 from .models import LabBenchQuestion, Mode
 from .utils import (
     GCS_BUCKET,
-    download_pdfs_from_sources,
     download_question_files,
     is_text_injectable_format,
     load_file_as_binary_content,
 )
 
 LABBENCH2_HF_DATASET = "futurehouse/labbench2"
-logger = logging.getLogger(__name__)
 
 
 def create_case(
-    question: LabBenchQuestion, mode: Mode = "file", native: bool = False
+    question: LabBenchQuestion,
+    mode: Mode = "file",
+    native: bool = False,
+    files_dir_override: Path | None = None,
 ) -> Case | None:
     """Convert a LabBenchQuestion to a Pydantic AI Case."""
     if question.files:
@@ -56,12 +56,20 @@ def create_case(
 
     question_text = question.question
 
-    # Download question files if specified in the dataset
+    # Download question files if specified in the dataset (or use override dir)
     files_path: Path | None = None
     has_files = False
     gcs_prefix_for_inputs = ""
 
-    if question.files:
+    if files_dir_override is not None and mode == "file":
+        files_path = Path(files_dir_override).resolve()
+        has_files = files_path.exists() and any(files_path.iterdir())
+        if not has_files:
+            raise RuntimeError(
+                f"Files dir override {files_dir_override} does not exist or has no files"
+            )
+        gcs_prefix_for_inputs = "local"
+    elif question.files:
         files_path = download_question_files(
             bucket_name=GCS_BUCKET,
             gcs_prefix=question.files,
@@ -72,35 +80,6 @@ def create_case(
                 f"Question {question.id} expects files at '{question.files}' but none found in GCS"
             )
         gcs_prefix_for_inputs = question.files.strip("/")
-    elif mode == "file" and question.sources:
-        # Fallback: no files column (e.g. litqa3); try to fetch PDFs from sources (DOIs)
-        try:
-            files_path = download_pdfs_from_sources(
-                question.sources,
-                cache_key=f"{question.tag}/{question.id}",
-            )
-            has_files = files_path.exists() and any(files_path.iterdir())
-            if has_files:
-                gcs_prefix_for_inputs = "sources"
-                logger.info(
-                    "Fetched PDF(s) from sources for %s (%s)",
-                    question.id,
-                    files_path,
-                )
-            else:
-                logger.warning(
-                    "download_pdfs_from_sources returned empty dir for %s (sources=%s)",
-                    question.id,
-                    question.sources,
-                )
-        except Exception as e:
-            logger.warning(
-                "Could not fetch PDFs from sources for %s (sources=%s): %s",
-                question.id,
-                question.sources,
-                e,
-                exc_info=True,
-            )
 
     # If question expects files, add them to the inputs.
     binary_files: list[object] = []
@@ -165,6 +144,7 @@ def create_dataset(
     limit: int | None = None,
     mode: Mode = "file",
     native: bool = False,
+    files_dir_override: Path | None = None,
 ) -> Dataset:
     """Create a Pydantic AI Dataset from HuggingFace.
 
@@ -175,6 +155,8 @@ def create_dataset(
         limit: Maximum number of questions to include
         mode: Processing mode ("file", "inject", or "retrieve")
         native: If True, return dict format for native API runners
+        files_dir_override: If set (and mode is "file"), use this directory as
+            files_path for every question instead of downloading from GCS/sources.
     """
     config = tag if tag else "all"
     hf_dataset = load_dataset(LABBENCH2_HF_DATASET, config, split="train")
@@ -190,6 +172,10 @@ def create_dataset(
     if limit:
         questions = questions[:limit]
 
-    cases = [case for q in questions if (case := create_case(q, mode, native)) is not None]
+    cases = [
+        case
+        for q in questions
+        if (case := create_case(q, mode, native, files_dir_override)) is not None
+    ]
 
     return Dataset(name=name, cases=cases)

@@ -31,8 +31,8 @@ Grading:
 
     To use the same VLM as this runner for the judge (e.g. no Anthropic key):
     set OPENAI_API_BASE and OPENAI_API_KEY to your VLM endpoint, then run evals
-    with --judge-model "openai/nvidia/nemotron-nano-12b-v2-vl" or
-    LABBENCH2_JUDGE_MODEL=openai/nvidia/nemotron-nano-12b-v2-vl (see setup.md).
+    with --judge-model "openai:nvidia/nemotron-nano-12b-v2-vl" or
+    LABBENCH2_JUDGE_MODEL=openai:nvidia/nemotron-nano-12b-v2-vl (see setup.md).
 
 Usage:
     uv run python -m evals.run_evals --agent external:./external_runners/NIM_PQA_runner.py:NIMPQARunner --tag litqa3 --limit 2
