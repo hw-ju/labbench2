@@ -426,6 +426,9 @@ class NIMAzurePQARunner:
         self._base_settings = _build_base_settings(
             chat_base, embedding_base, token, extra_headers, parse_base, parse_key
         )
+        # Force openai provider to use Azure endpoint (LDP may not pass api_base/api_key to litellm; see NIM_PQA_runner, test_parse_pqa_results.ipynb)
+        os.environ["OPENAI_API_BASE"] = chat_base
+        os.environ["OPENAI_API_KEY"] = token
         logging.getLogger("LiteLLM").setLevel(logging.INFO)
 
     async def upload_files(
